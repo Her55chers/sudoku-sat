@@ -1,0 +1,37 @@
+{
+ "profile": "full",
+ "time_limit": 200.0,
+ "sets": {
+  "Gen-16": 30,
+  "Gen-25": 30,
+  "Gen-36": 30,
+  "Gen-49": 30,
+  "Gen-64": 30
+ },
+ "fixed": "cadical195",
+ "best_cfg": [
+  "pairwise",
+  "extended"
+ ],
+ "best_sat": "cadical195",
+ "sat_ok": [
+  "cadical195",
+  "glucose4",
+  "cms"
+ ],
+ "gen_n": [
+  4,
+  5,
+  6,
+  7,
+  8
+ ],
+ "holes": [
+  0.4,
+  0.5,
+  0.6
+ ],
+ "per_cell": 10,
+ "jobs": 6,
+ "cms": null
+}

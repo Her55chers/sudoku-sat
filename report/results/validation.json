@@ -1,0 +1,141 @@
+{
+ "amo_exhaustive": {
+  "pairwise": {
+   "cases": 2046,
+   "ok": true,
+   "formula_m2_200": true
+  },
+  "seq": {
+   "cases": 2046,
+   "ok": true,
+   "formula_m2_200": true
+  },
+  "binary": {
+   "cases": 2046,
+   "ok": true,
+   "formula_m2_200": true
+  },
+  "commander": {
+   "cases": 2046,
+   "ok": true,
+   "formula_m2_200": true
+  },
+  "product": {
+   "cases": 2046,
+   "ok": true,
+   "formula_m2_200": true
+  }
+ },
+ "amo_low_weight": {
+  "pairwise": {
+   "cases": 2394,
+   "ok": true
+  },
+  "seq": {
+   "cases": 2394,
+   "ok": true
+  },
+  "binary": {
+   "cases": 2394,
+   "ok": true
+  },
+  "commander": {
+   "cases": 2394,
+   "ok": true
+  },
+  "product": {
+   "cases": 2394,
+   "ok": true
+  }
+ },
+ "up": {
+  "pairwise": {
+   "cases": 2079,
+   "ok": true
+  },
+  "seq": {
+   "cases": 2079,
+   "ok": true
+  },
+  "binary": {
+   "cases": 2079,
+   "ok": true
+  },
+  "commander": {
+   "cases": 2079,
+   "ok": true
+  },
+  "product": {
+   "cases": 2079,
+   "ok": true
+  }
+ },
+ "sizes": {
+  "combinations": 60,
+  "ok": true,
+  "N_max": 49
+ },
+ "sudoku": {
+  "wikipedia_9x9": {
+   "pairwise/minimal": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.02
+   },
+   "pairwise/extended": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.02
+   },
+   "seq/minimal": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.01
+   },
+   "seq/extended": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.02
+   },
+   "binary/minimal": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.02
+   },
+   "binary/extended": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.03
+   },
+   "commander/minimal": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.01
+   },
+   "commander/extended": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.02
+   },
+   "product/minimal": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.01
+   },
+   "product/extended": {
+    "valid": true,
+    "equals_reference": true,
+    "sec": 0.02
+   }
+  },
+  "unique": true,
+  "empty_4x4_valid": true,
+  "conflicting_clues_unsat": true,
+  "generated": {
+   "N=4,holes=0.5": "5/5",
+   "N=9,holes=0.5": "5/5",
+   "N=16,holes=0.4": "5/5"
+  }
+ },
+ "seconds": 18.1
+}

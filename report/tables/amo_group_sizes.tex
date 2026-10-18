@@ -1,0 +1,11 @@
+\begin{tabular}{lllcccc}
+\toprule
+Encoding AMO & Số biến phụ & Số mệnh đề & $m=9$ & $m=16$ & $m=25$ & $m=64$ \\
+\midrule
+Pairwise & $0$ & $m(m-1)/2$ & 0\,/\,36 & 0\,/\,120 & 0\,/\,300 & 0\,/\,2016 \\
+Sequential & $m-1$ & $3m-4$ & 8\,/\,23 & 15\,/\,44 & 24\,/\,71 & 63\,/\,188 \\
+Binary & $\lceil\log_2 m\rceil$ & $m\lceil\log_2 m\rceil$ & 4\,/\,36 & 4\,/\,64 & 5\,/\,125 & 6\,/\,384 \\
+Commander & $g=\lceil m/3\rceil$ & $\binom{g}{2}+g+m+\sum_i\binom{s_i}{2}$ & 3\,/\,24 & 6\,/\,51 & 9\,/\,93 & 22\,/\,379 \\
+Product & $p+q$ & $2m+\binom{p}{2}+\binom{q}{2}$ & 6\,/\,24 & 8\,/\,44 & 10\,/\,70 & 16\,/\,184 \\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,20 @@
+% TU DONG SINH boi run_experiments.py -- hay doc lai va sua cho tu nhien.
+\renewcommand{\MachineCPU}{AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD}
+\renewcommand{\MachineCores}{12}
+\renewcommand{\MachineRAM}{32 GB}
+\renewcommand{\MachineOS}{Windows 11}
+\renewcommand{\PythonVersion}{3.14.7}
+\renewcommand{\TimeLimit}{200}
+\renewcommand{\RepeatText}{Mỗi đề chạy một lần với mỗi cấu hình, chạy song song 6 tiến trình.}
+\renewcommand{\FixedSolver}{CaDiCaL}
+\renewcommand{\BestConfig}{Pairwise + extended}
+\renewcommand{\BestSolver}{CaDiCaL}
+\renewcommand{\MaxGenN}{64}
+\renewcommand{\GenPerCell}{10}
+\renewcommand{\GenSizes}{16, 25, 36, 49, 64}
+\renewcommand{\HoleRatios}{0.4, 0.5, 0.6}
+\renewcommand{\AutoAbstract}{Trên 150 đề thử nghiệm với giới hạn 200 giây, cấu hình mã hóa tốt nhất là AMO Pairwise với mã hóa extended, và CaDiCaL là solver tốt nhất, giải được 117/150 đề.}
+\renewcommand{\AutoAmo}{Với CaDiCaL, cấu hình tốt nhất là Pairwise + extended: giải được 117/150 đề, tổng PAR-2 trên các bộ là 481,49 giây. Cấu hình kém nhất là Binary + minimal (81/150 đề, tổng PAR-2 927,45 giây). Trong 25 cặp (bộ dữ liệu, AMO), mã hóa extended tốt hơn minimal ở 20 cặp, minimal tốt hơn ở 5 cặp, các cặp còn lại như nhau. Trên bộ Gen-64, thứ tự theo thời gian (tốt nhất trước) là Pairwise, Sequential, Binary, Commander, Product, còn thứ tự theo số mệnh đề (ít nhất trước) là Product, Sequential, Commander, Binary, Pairwise; hai thứ tự này không hoàn toàn trùng nhau, nghĩa là kích thước công thức chưa giải thích hết thời gian chạy.}
+\renewcommand{\AutoSolvers}{Với cấu hình Pairwise + extended, xếp theo số đề giải được rồi đến PAR-2, thứ tự các solver là CaDiCaL (117/150), CryptoMiniSat (100/150), Glucose (99/150). Solver tốt nhất trên từng bộ: Gen-16: CryptoMiniSat; Gen-25: CryptoMiniSat; Gen-36: CaDiCaL; Gen-49: CaDiCaL; Gen-64: CaDiCaL. So với pairwise + minimal, cấu hình Pairwise + extended tốt hơn với CaDiCaL, Glucose, CryptoMiniSat (3/3 solver), tức là cấu hình tốt nhất tìm được với CaDiCaL cũng có lợi cho các solver khác.}
+\renewcommand{\AutoScale}{$N$ lớn nhất mà mỗi solver giải hết các đề trong giới hạn 200 giây (cấu hình Pairwise + extended): CaDiCaL: $25\times25$; Glucose: $25\times25$; CryptoMiniSat: $25\times25$. Với CaDiCaL, thời gian sinh công thức chiếm 40\% tổng thời gian của các đề giải được. Có 5 lần chạy lỗi hoặc hết bộ nhớ (xem cột msg trong \texttt{results/runs.csv}). }
+\renewcommand{\AutoConclusion}{Trên 150 đề thử nghiệm với giới hạn 200 giây, cấu hình mã hóa tốt nhất là AMO Pairwise với mã hóa extended, và CaDiCaL là solver tốt nhất, giải được 117/150 đề. Lưới lớn nhất mà CaDiCaL giải hết các đề là $25\times25$.}
