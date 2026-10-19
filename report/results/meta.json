@@ -2,15 +2,11 @@
  "profile": "full",
  "time_limit": 200.0,
  "sets": {
-  "Gen-16": 30,
-  "Gen-25": 30,
-  "Gen-36": 30,
-  "Gen-49": 30,
-  "Gen-64": 30
+  "Gen-36": 30
  },
  "fixed": "cadical195",
  "best_cfg": [
-  "pairwise",
+  "seq",
   "extended"
  ],
  "best_sat": "cadical195",
@@ -19,12 +15,9 @@
   "glucose4",
   "cms"
  ],
+ "cpsat_ok": true,
  "gen_n": [
-  4,
-  5,
-  6,
-  7,
-  8
+  6
  ],
  "holes": [
   0.4,
@@ -33,5 +26,6 @@
  ],
  "per_cell": 10,
  "jobs": 6,
+ "norvig": false,
  "cms": null
 }

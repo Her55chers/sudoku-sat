@@ -9,6 +9,7 @@ Lenh:
   python run_experiments.py info --name "Nguyễn Văn A" --email x@vnu.edu.vn --github https://github.com/u/sudoku-sat
   python run_experiments.py run --profile quick         # chay thu (~1-3 gio)
   python run_experiments.py run --profile full          # chay day du (lau)
+  python run_experiments.py run --profile quick --sizes 36   # chi chay luoi 36x36
   python run_experiments.py report                      # chi tao lai bang/hinh/doan van tu ket qua da co
   python run_experiments.py reset                       # tra bao cao ve trang thai chu do
 
@@ -32,6 +33,8 @@ VARIANTS = ["minimal", "extended"]
 SAT_SOLVERS = ["cadical195", "glucose4", "cms"]
 SAT_LABEL = {"cadical195": "CaDiCaL", "glucose4": "Glucose",
              "cms": "CryptoMiniSat", "dpll": "DPLL (tham chiếu)"}
+CPSAT = "cpsat"                      # OR-Tools CP-SAT, mo hinh CP voi AllDifferent
+CPSAT_LABEL = "OR-Tools CP-SAT"
 
 PROFILES = {
     # n = canh khoi (N = n*n)
@@ -158,12 +161,46 @@ def solve_sat(solver, amo, variant, n, clues, T, cms_path=None):
     grid = None if true is None else S.decode(n, true)
     return grid, t1 - t0, t2 - t1, info
 
+def solve_cpsat(n, clues, T):
+    """Mo hinh CP: mot bien nguyen v[r,c] in [1,N] cho moi o, AllDifferent cho
+    moi hang, cot, khoi; o cho truoc duoc co dinh. Giai bang CP-SAT 1 luong."""
+    from ortools.sat.python import cp_model
+    t0 = time.perf_counter(); N = n * n; R_ = range(N)
+    m = cp_model.CpModel()
+    new_int = getattr(m, "new_int_var", None) or m.NewIntVar
+    all_diff = getattr(m, "add_all_different", None) or m.AddAllDifferent
+    v = {(r, c): new_int(1, N, f"v_{r}_{c}") for r in R_ for c in R_}
+    for i in R_:
+        all_diff([v[i, c] for c in R_])                          # hang i
+        all_diff([v[r, i] for r in R_])                          # cot i
+        all_diff([v[r, c] for r, c in S.box_cells(n, i)])        # khoi i
+    add = getattr(m, "add", None) or m.Add
+    for (r, c), d in clues.items():                             # o cho truoc
+        add(v[r, c] == d)
+    solver = cp_model.CpSolver()
+    t1 = time.perf_counter()
+    solver.parameters.max_time_in_seconds = max(1.0, T - (t1 - t0))
+    try: solver.parameters.num_workers = 1
+    except Exception: solver.parameters.num_search_workers = 1
+    st = (getattr(solver, "solve", None) or solver.Solve)(m)
+    t2 = time.perf_counter()
+    info = {"vars": N * N, "clauses": 3 * N}            # 3N rang buoc AllDifferent
+    if st in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        val = getattr(solver, "value", None) or solver.Value
+        return [[int(val(v[r, c])) for c in R_] for r in R_], t1 - t0, t2 - t1, info
+    if st == cp_model.INFEASIBLE:
+        return None, t1 - t0, t2 - t1, info
+    raise subprocess.TimeoutExpired("cp-sat", T)        # UNKNOWN = het gio
+
 def worker(a):
     n, clues = read_instance(a.instance)
     out = {"status": "ERR", "t_build": 0, "t_solve": 0, "t_total": 0}
     try:
-        _, solver, amo, variant = a.method.split(":")
-        grid, tb, ts, info = solve_sat(solver, amo, variant, n, clues, a.time_limit, a.cms)
+        if a.method == CPSAT:
+            grid, tb, ts, info = solve_cpsat(n, clues, a.time_limit)
+        else:
+            _, solver, amo, variant = a.method.split(":")
+            grid, tb, ts, info = solve_sat(solver, amo, variant, n, clues, a.time_limit, a.cms)
         out.update(info, t_build=tb, t_solve=ts, t_total=tb + ts)
         if grid is None: out["status"] = "UNSAT"
         else: out["status"] = "SAT" if S.is_valid_solution(n, grid, clues) else "WRONG"
@@ -191,6 +228,16 @@ def available_solvers(paths, verbose=True):
         if r["status"] == "SAT": ok.append(sol)
         if verbose:
             print(f"  {'OK ' if r['status'] == 'SAT' else '-- '} {SAT_LABEL[sol]:16s} {'' if r['status'] == 'SAT' else r.get('msg', r['status'])[:100]}")
+    return ok
+
+def available_cpsat(verbose=True):
+    os.makedirs(INST, exist_ok=True)
+    if not os.path.exists(TINY):
+        write_instance(TINY, 2, {(0, 0): 1, (1, 2): 1})
+    r = run_one(CPSAT, TINY, 30, {})
+    ok = r["status"] == "SAT"
+    if verbose:
+        print(f"  {'OK ' if ok else '-- '} {CPSAT_LABEL:16s} {'' if ok else r.get('msg', r['status'])[:100]}")
     return ok
 
 # =============================================================================
@@ -274,7 +321,16 @@ def key_total(rows, method, sets, T):
     return (t["solved"], -t["par2"]) if t["total"] else (-1, 0)
 
 def cmd_run(a):
-    prof = PROFILES[a.profile]; T = float(a.time_limit or prof["time_limit"])
+    prof = dict(PROFILES[a.profile]); T = float(a.time_limit or prof["time_limit"])
+    if a.sizes:                       # chi chay cac kich thuoc N duoc chon, vd --sizes 36  hoac  --sizes 9 36
+        want = set(a.sizes)
+        prof["gen_n"] = [n for n in prof["gen_n"] if n * n in want] + \
+                        [n for n in range(2, 11) if n * n in want and n * n != 9 and n not in prof["gen_n"]]
+        prof["gen_n"] = sorted(set(prof["gen_n"]))
+        prof["norvig"] = prof["norvig"] and 9 in want
+        if not prof["gen_n"] and not prof["norvig"]:
+            sys.exit(f"--sizes {a.sizes}: không có bộ đề nào khớp. Các N hợp lệ: 9 (bộ Norvig) và 16, 25, 36, 49, 64, 81, 100.")
+        print(f"Chỉ chạy các kích thước N = {sorted(want)}")
     paths = {"cms": a.cms}
     print("1) Chuẩn bị bộ đề ...")
     sets = prepare_instances(prof)
@@ -300,12 +356,20 @@ def cmd_run(a):
     rows = load_runs()
     best_sat = max(sat_ok, key=lambda sol: key_total(rows, f"sat:{sol}:{best_cfg[0]}:{best_cfg[1]}", list(sets), T))
     print(f"   -> SAT solver tốt nhất: {best_sat}")
+    cpsat_ok = available_cpsat(verbose=False)
+    if cpsat_ok:
+        print(f"5) Thí nghiệm C: {CPSAT_LABEL} (mô hình CP với AllDifferent) trên mọi bộ")
+        jobs = [(s, i, CPSAT) for s in sets for i in sets[s]]
+        run_batch(jobs, T, a.jobs, paths, done)
+    else:
+        print(f"5) Bỏ qua thí nghiệm C: {CPSAT_LABEL} không chạy được (pip install ortools)")
     meta = {"profile": a.profile, "time_limit": T, "sets": {k: len(v) for k, v in sets.items()},
-            "fixed": fixed, "best_cfg": best_cfg, "best_sat": best_sat, "sat_ok": sat_ok,
+            "fixed": fixed, "best_cfg": best_cfg, "best_sat": best_sat, "sat_ok": sat_ok, "cpsat_ok": cpsat_ok,
             "gen_n": prof["gen_n"], "holes": prof["holes"], "per_cell": prof["per_cell"], "jobs": a.jobs,
+            "norvig": bool(prof["norvig"]) and any(k.startswith("9-") for k in sets),
             "cms": a.cms}
     json.dump(meta, open(os.path.join(REPORT, "results", "meta.json"), "w"), indent=1, ensure_ascii=False)
-    print("5) Tạo bảng, hình và đoạn văn cho báo cáo ...")
+    print("6) Tạo bảng, hình và đoạn văn cho báo cáo ...")
     cmd_report(a)
 
 # =============================================================================
@@ -363,6 +427,7 @@ def solver_versions(meta):
         tryv("cms", lambda: subprocess.run([meta.get("cms") or shutil.which("cryptominisat5"), "--version"], capture_output=True, text=True).stdout)
     else:
         tryv("cms", lambda: "pycryptosat " + __import__("pycryptosat").__version__)
+    tryv(CPSAT, lambda: "OR-Tools " + __import__("ortools").__version__)
     return v
 
 def cmd_report(a):
@@ -377,6 +442,7 @@ def cmd_report(a):
     W = lambda name, txt: open(os.path.join(tdir, name), "w", encoding="utf-8").write(txt)
     lab = lambda k: S.AMO_LABEL[k]
     M_ = lambda sol, c=bc: f"sat:{sol}:{c[0]}:{c[1]}"
+    has_cp = any(r["method"] == CPSAT for r in rows)
 
     # ---- Bang A: AMO x bien the voi solver co dinh
     L = [r"\begin{tabular}{ll" + "c" * len(AMOS) + "}", r"\toprule",
@@ -418,6 +484,9 @@ def cmd_report(a):
         r"CaDiCaL~\citep{biere2020} & PySAT (\texttt{cadical195}) & " + vcell("cadical195") + r"\\",
         r"Glucose~\citep{audemard2009} & PySAT (\texttt{glucose4}) & " + vcell("glucose4") + r"\\",
         r"CryptoMiniSat~\citep{soos2009} & " + cms_how + " & " + vcell("cms") + r"\\",
+        r"\midrule",
+        r"OR-Tools CP-SAT~\citep{cpsat} & \texttt{ortools}, mô hình CP (\textsc{AllDifferent}) & "
+        + (tex_escape(ver.get(CPSAT) or "--") if meta.get("cpsat_ok") else "không chạy") + r"\\",
         r"\bottomrule", r"\end{tabular}"]) + "\n")
     B = [r"\begin{tabular}{llcc}", r"\toprule", r"Bộ & Nguồn & $N$ & Số đề\\", r"\midrule"]
     for s, cnt in meta["sets"].items():
@@ -425,7 +494,25 @@ def cmd_report(a):
         else: B.append(f"{s} & tự sinh, {meta['per_cell']} đề mỗi $h$ & {s.split('-')[1]} & {cnt}" + r"\\")
     B += [r"\bottomrule", r"\end{tabular}"]; W("bench.tex", "\n".join(B) + "\n")
 
-    # ---- cactus: cac SAT solver voi cau hinh tot nhat
+    # ---- Bang C: SAT tot nhat vs CP-SAT
+    best_sat_lab = f"SAT ({SAT_LABEL[bs]}, {lab(bc[0])} + {bc[1]})"
+    cmp_m = [M_(bs)] + ([CPSAT] if has_cp else [])
+    cmp_l = [best_sat_lab] + ([CPSAT_LABEL] if has_cp else [])
+    L = [r"\begin{tabular}{l" + "c" * len(sets) + "}", r"\toprule",
+         "Phương pháp & " + " & ".join(sets) + r" \\", r"\midrule"]
+    bestC = {}
+    for s in sets:
+        b = None
+        for m in cmp_m:
+            if better(stats(rows, m, s, T), stats(rows, b, s, T) if b else None): b = m
+        bestC[s] = b
+    for m, l in zip(cmp_m, cmp_l):
+        L.append(l + " & " + " & ".join(cell(stats(rows, m, s, T), bestC[s] == m) for s in sets) + r" \\")
+    if not has_cp:
+        L.append(CPSAT_LABEL + " & " + " & ".join(["không chạy"] * len(sets)) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}"]; W("res_base.tex", "\n".join(L) + "\n")
+
+    # ---- cactus: cac SAT solver voi cau hinh tot nhat (+ CP-SAT)
     try:
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
         plt.rcParams.update({"font.size": 8, "font.family": "serif"})
@@ -433,6 +520,9 @@ def cmd_report(a):
         for x in solvers:
             ts = sorted(r["t_total"] for r in rows if r["method"] == M_(x) and r["time_limit"] == T and r["status"] in ("SAT", "UNSAT"))
             if ts: ax.plot(range(1, len(ts) + 1), ts, marker=".", ms=3, lw=1, label=SAT_LABEL[x])
+        if has_cp:
+            ts = sorted(r["t_total"] for r in rows if r["method"] == CPSAT and r["time_limit"] == T and r["status"] in ("SAT", "UNSAT"))
+            if ts: ax.plot(range(1, len(ts) + 1), ts, marker="x", ms=3, lw=1, ls="--", color="black", label=CPSAT_LABEL)
         ax.set_yscale("log"); ax.set_xlabel("Số đề giải được"); ax.set_ylabel("Thời gian (giây)")
         ax.axhline(T, color="gray", ls="--", lw=0.8); ax.grid(alpha=.3); ax.legend(fontsize=7, frameon=False)
         plt.tight_layout(); plt.savefig(os.path.join(REPORT, "figures", "cactus.pdf")); plt.close()
@@ -498,10 +588,49 @@ def cmd_report(a):
     if any(r["status"] == "WRONG" for r in bad):
         scale_txt += r"\textcolor{red}{Có lời giải sai (đánh dấu $^{!}$ trong bảng), cần kiểm tra lại code.} "
     n_all = sum(meta["sets"].values()); bt = tot(M_(bs), sets); msat = maxN(M_(bs))
+    if has_cp:
+        ct = tot(CPSAT, sets); mcp = maxN(CPSAT)
+        win_sat = [s for s in sets if bestC[s] == M_(bs)]; win_cp = [s for s in sets if bestC[s] == CPSAT]
+        cp_txt = (f"Trên toàn bộ dữ liệu, {best_sat_lab} giải được {bt['solved']}/{bt['total']} đề "
+                  f"(tổng PAR-2 {vn(bt['par2'])} giây), còn {CPSAT_LABEL} giải được {ct['solved']}/{ct['total']} đề "
+                  f"(tổng PAR-2 {vn(ct['par2'])} giây). "
+                  f"SAT tốt hơn trên {len(win_sat)} bộ" + (f" ({', '.join(win_sat)})" if win_sat else "")
+                  + f", CP-SAT tốt hơn trên {len(win_cp)} bộ" + (f" ({', '.join(win_cp)})" if win_cp else "") + ". "
+                  f"Với CP-SAT, thời gian xây dựng mô hình chỉ chiếm {vn(share(CPSAT), 0)}\\% tổng thời gian của các đề giải được, "
+                  f"so với {vn(share(M_(bs)), 0)}\\% thời gian sinh CNF của SAT, vì mô hình CP chỉ có $N^2$ biến và $3N$ ràng buộc. "
+                  + f"Lưới lớn nhất mà CP-SAT giải hết các đề là " + (f"${mcp}\\times{mcp}$." if mcp else "không có."))
+        scale_txt += f"{CPSAT_LABEL}: " + (f"${mcp}\\times{mcp}$. " if mcp else "không có. ")
+        if ct["solved"] > bt["solved"] or (ct["solved"] == bt["solved"] and ct["par2"] < bt["par2"]):
+            cmp_sent = f" So với {CPSAT_LABEL} ({ct['solved']}/{ct['total']} đề), cách tiếp cận SAT kém hơn trên dữ liệu này."
+        else:
+            cmp_sent = f" So với {CPSAT_LABEL} ({ct['solved']}/{ct['total']} đề), cách tiếp cận SAT tốt hơn hoặc ngang bằng."
+    else:
+        cp_txt = f"{CPSAT_LABEL} không chạy được trên máy thử nghiệm (thiếu gói \\texttt{{ortools}}), nên chưa có số liệu so sánh."
+        cmp_sent = ""
     abstract_txt = (f"Trên {n_all} đề thử nghiệm với giới hạn {vn(T,0)} giây, cấu hình mã hóa tốt nhất là AMO {lab(bc[0])} với mã hóa {bc[1]}, "
-                    f"và {SAT_LABEL[bs]} là solver tốt nhất, giải được {bt['solved']}/{bt['total']} đề.")
+                    f"và {SAT_LABEL[bs]} là solver tốt nhất, giải được {bt['solved']}/{bt['total']} đề." + cmp_sent)
     concl_txt = abstract_txt + (f" Lưới lớn nhất mà {SAT_LABEL[bs]} giải hết các đề là ${msat}\\times{msat}$." if msat else "")
     maxgen = max([int(s.split("-")[1]) for s in sets if s.startswith("Gen-")] or [9])
+    gsz = [n * n for n in meta["gen_n"]]
+    has_norvig = meta.get("norvig", any(s.startswith("9-") for s in sets))
+    grid_txt = (f"các lưới ${gsz[0]}\\times{gsz[0]}$" if len(gsz) == 1 else
+                f"các lưới có $N\\in\\{{{', '.join(map(str, gsz))}\\}}$") if gsz else ""
+    if has_norvig and gsz:
+        scope = f"trên các đề $9\\times9$ và {grid_txt}"
+        bench_intro = (r"Tôi dùng hai nhóm dữ liệu (Bảng~\ref{tab:bench}). Nhóm thứ nhất là các đề $9\times9$ khó đã được công bố: "
+                       r"bộ \emph{top95} (95 đề) và \emph{hardest} (11 đề) của~\citet{norvig}. Nhóm thứ hai là các đề do tôi tự sinh")
+        limit_txt = r"vì vậy tôi thêm các bộ đề $9\times9$ đã công bố."
+    elif gsz:
+        scope = f"trên {grid_txt}"
+        bench_intro = (r"Do giới hạn thời gian, thực nghiệm chỉ dùng các đề do tôi tự sinh (Bảng~\ref{tab:bench}), "
+                       r"không chạy các bộ đề $9\times9$ đã công bố. Các đề được sinh")
+        limit_txt = (r"ngoài ra, do giới hạn thời gian, tôi chỉ chạy " + grid_txt +
+                     r" và chưa chạy các bộ đề $9\times9$ đã công bố hay các kích thước khác, nên các kết luận ở đây chỉ đúng cho kích thước đã thử.")
+    else:
+        scope = "trên các đề $9\\times9$"
+        bench_intro = (r"Do giới hạn thời gian, thực nghiệm chỉ dùng các đề $9\times9$ khó đã được công bố (Bảng~\ref{tab:bench}): "
+                       r"bộ \emph{top95} (95 đề) và \emph{hardest} (11 đề) của~\citet{norvig}. Cách sinh đề lớn (chưa dùng trong thực nghiệm) là: các đề được sinh")
+        limit_txt = r"ngoài ra, do giới hạn thời gian, tôi chưa chạy các lưới lớn hơn $9\times9$."
     def M(name, val): return f"\\renewcommand{{\\{name}}}{{{val}}}\n"
     txt = ("% TU DONG SINH boi run_experiments.py -- hay doc lai va sua cho tu nhien.\n"
            + M("MachineCPU", tex_escape(mi["cpu"])) + M("MachineCores", mi["cores"]) + M("MachineRAM", tex_escape(mi["ram"]))
@@ -510,8 +639,9 @@ def cmd_report(a):
            + M("FixedSolver", SAT_LABEL[fixed]) + M("BestConfig", f"{lab(bc[0])} + {bc[1]}") + M("BestSolver", SAT_LABEL[bs])
            + M("MaxGenN", maxgen) + M("GenPerCell", meta["per_cell"])
            + M("GenSizes", ", ".join(str(n*n) for n in meta["gen_n"])) + M("HoleRatios", ", ".join(str(h) for h in meta["holes"]))
+           + M("DataScope", scope) + M("BenchIntro", bench_intro) + M("LimitData", limit_txt)
            + M("AutoAbstract", abstract_txt) + M("AutoAmo", amo_txt) + M("AutoSolvers", solver_txt)
-           + M("AutoScale", scale_txt) + M("AutoConclusion", concl_txt))
+           + M("AutoScale", scale_txt) + M("AutoCpsat", cp_txt) + M("AutoConclusion", concl_txt))
     open(os.path.join(REPORT, "results", "auto_text.tex"), "w", encoding="utf-8").write(txt)
     print("  đã ghi tables/res_*.tex, tables/solvers.tex, tables/bench.tex, figures/cactus.pdf, results/auto_text.tex")
 
@@ -524,10 +654,14 @@ PLACEHOLDER_TEXT = {
     "RepeatText": r"\TODO{Ghi số lần chạy lặp.}", "FixedSolver": r"\TODO{CaDiCaL}",
     "BestConfig": r"\TODO{cấu hình tốt nhất}", "BestSolver": r"\TODO{solver tốt nhất}", "MaxGenN": r"\TODO{64}",
     "GenPerCell": "10", "GenSizes": "16, 25, 36, 49, 64", "HoleRatios": "0.4, 0.5, 0.6",
+    "DataScope": r"trên các đề $9\times9$ và các lưới lớn đến $N=\TODO{64}$",
+    "BenchIntro": r"Tôi dùng hai nhóm dữ liệu (Bảng~\ref{tab:bench}). Nhóm thứ nhất là các đề $9\times9$ khó đã được công bố: bộ \emph{top95} (95 đề) và \emph{hardest} (11 đề) của~\citet{norvig}. Nhóm thứ hai là các đề do tôi tự sinh",
+    "LimitData": r"vì vậy tôi thêm các bộ đề $9\times9$ đã công bố.",
     "AutoAbstract": r"\TODO{Viết 1--2 câu về kết quả thực nghiệm chính.}",
     "AutoAmo": r"\TODO{Nhận xét: cấu hình nào giải được nhiều đề nhất; extended có giúp ích không; thứ tự theo số mệnh đề có trùng với thứ tự theo thời gian không.}",
     "AutoSolvers": r"\TODO{Nhận xét thứ hạng các SAT solver; cấu hình tốt nhất có tốt cho mọi solver không.}",
     "AutoScale": r"\TODO{Ghi $N$ lớn nhất mỗi solver giải hết; tỉ lệ thời gian sinh công thức; các lần chạy lỗi.}",
+    "AutoCpsat": r"\TODO{Nhận xét SAT so với CP-SAT: số đề giải được, PAR-2, bộ nào mỗi cách mạnh hơn, tỉ lệ thời gian xây dựng mô hình.}",
     "AutoConclusion": r"\TODO{Tóm tắt kết quả thực nghiệm.}",
 }
 
@@ -558,7 +692,13 @@ def cmd_reset(a=None):
         r"CaDiCaL~\citep{biere2020} & PySAT (\texttt{cadical195}) & " + td + r"\\",
         r"Glucose~\citep{audemard2009} & PySAT (\texttt{glucose4}) & " + td + r"\\",
         r"CryptoMiniSat~\citep{soos2009} & \texttt{pycryptosat} hoặc file chạy \texttt{cryptominisat5} & " + td + r"\\",
+        r"\midrule",
+        r"OR-Tools CP-SAT~\citep{cpsat} & \texttt{ortools}, mô hình CP (\textsc{AllDifferent}) & " + td + r"\\",
         r"\bottomrule", r"\end{tabular}"]) + "\n")
+    L = [r"\begin{tabular}{l" + "c" * len(setsB) + "}", r"\toprule", "Phương pháp & " + " & ".join(setsB) + r" \\", r"\midrule",
+         r"SAT (\TODO{solver + cấu hình tốt nhất}) & " + " & ".join([t] * len(setsB)) + r" \\",
+         CPSAT_LABEL + " & " + " & ".join([t] * len(setsB)) + r" \\", r"\bottomrule", r"\end{tabular}"]
+    open(os.path.join(tdir, "res_base.tex"), "w", encoding="utf-8").write("\n".join(L) + "\n")
     open(os.path.join(tdir, "bench.tex"), "w", encoding="utf-8").write("\n".join([
         r"\begin{tabular}{llcc}", r"\toprule", r"Bộ & Nguồn & $N$ & Số đề\\", r"\midrule",
         r"9-top95 & \citet{norvig} & 9 & 95\\", r"9-hardest & \citet{norvig} & 9 & 11\\",
@@ -566,8 +706,6 @@ def cmd_reset(a=None):
         r"\bottomrule", r"\end{tabular}"]) + "\n")
     cp = os.path.join(REPORT, "figures", "cactus.pdf")
     if os.path.exists(cp): os.remove(cp)
-    for old in ("res_base.tex",):
-        if os.path.exists(os.path.join(tdir, old)): os.remove(os.path.join(tdir, old))
     print("Đã đưa báo cáo về trạng thái chữ đỏ (results/runs.csv vẫn được giữ).")
 
 def cmd_info(a):
@@ -592,6 +730,7 @@ def main():
     p = sp.add_parser("check"); paths(p)
     p = sp.add_parser("run"); p.add_argument("--profile", default="quick", choices=list(PROFILES))
     p.add_argument("--time-limit", type=float); p.add_argument("--jobs", type=int, default=1); paths(p)
+    p.add_argument("--sizes", type=int, nargs="+", help="chỉ chạy các lưới N x N này, vd --sizes 36")
     sp.add_parser("report"); sp.add_parser("reset")
     p = sp.add_parser("info"); p.add_argument("--name"); p.add_argument("--email"); p.add_argument("--github")
     p = sp.add_parser("worker"); p.add_argument("--method"); p.add_argument("--instance")
@@ -599,7 +738,7 @@ def main():
     a = ap.parse_args()
     if a.cmd == "worker": return worker(a)
     if a.cmd == "check":
-        print("Kiểm tra SAT solver (OK = chạy được):"); available_solvers({"cms": a.cms}); return
+        print("Kiểm tra solver (OK = chạy được):"); available_solvers({"cms": a.cms}); available_cpsat(); return
     if a.cmd == "run": return cmd_run(a)
     if a.cmd == "report": return cmd_report(a)
     if a.cmd == "reset": return cmd_reset(a)
